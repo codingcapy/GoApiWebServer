@@ -1,12 +1,26 @@
 package main
 
 import (
-	"errors"
+	"database/sql"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 )
+
+var db *sql.DB
+
+func init() {
+	var err error
+	db, err = sql.Open("postgres", "postgresql://postgres:Stevefox1!@localhost/capychatdb?sslmode=disable")
+	if err != nil {
+		panic(err)
+	}
+	if err = db.Ping(); err != nil {
+		panic(err)
+	}
+}
 
 type user struct {
 	User_id      int    `json:"user_id`
@@ -27,16 +41,28 @@ func getHome(c *gin.Context) {
 }
 
 func getUsers(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, users)
-}
-
-func getUserById(id int) (*user, error) {
-	for i, u := range users {
-		if u.User_id == id {
-			return &users[i], nil
-		}
+	rows, err := db.Query("SELECT user_id, username, password, email, display_name, created_at, active FROM users")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	return nil, errors.New("user not found")
+	defer rows.Close()
+
+	var users []*user
+	for rows.Next() {
+		var u user
+		err := rows.Scan(&u.User_id, &u.Username, &u.Password, &u.Email, &u.Display_name, &u.Created_at, &u.Active)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		users = append(users, &u)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.IndentedJSON(http.StatusOK, users)
 }
 
 func getUser(c *gin.Context) {
@@ -46,11 +72,27 @@ func getUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
 		return
 	}
-	user, err := getUserById(userId)
+	rows, err := db.Query("SELECT * FROM users WHERE user_id = $1", userId)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.IndentedJSON(http.StatusOK, user)
+	defer rows.Close()
+	var users []*user
+	for rows.Next() {
+		var u user
+		err := rows.Scan(&u.User_id, &u.Username, &u.Password, &u.Email, &u.Display_name, &u.Created_at, &u.Active)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		users = append(users, &u)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.IndentedJSON(http.StatusOK, users)
 }
 
 func createUser(c *gin.Context) {
